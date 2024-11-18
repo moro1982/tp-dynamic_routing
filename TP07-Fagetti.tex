@@ -1,0 +1,392 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage[spanish]{babel}
+\usepackage{multirow}
+
+\title{TP07 - Routing dinamico intradominio}
+\author{Nicolás Fagetti}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Protocolos de ruteo}
+
+En este Laboratorio vimos protocolos de ruteo din\'amico, necesarios para que los dispositivos de encaminamiento (Routers) actualicen sus tablas de ruteo sin requerir la intervenci\'on manual. Para ello, los Routers se comunican entre s\'i por medio de protocolos de ruteo, que en este caso corresponden a la familia de los IGP (Interior Gateway Protocols). Estos se dividen en 2 grandes grupos: los de estado de enlace (``link state'') y los de vector distancia.
+
+\section{El protocolo RIPv2}
+
+A fin de comprender un poco m\'as en general el protocolo RIPv2, hemos revisado la documentaci\'on de Cisco y alg\'un material extra, con lo cual hemos elaborado el siguiente resumen: \\
+
+RIP (Routing Information Protocol), es un protocolo de ruteo din\'amico simple, y es un tipo de protocolo basado en el vector distancia. A traves del ``hop count" (conteo de saltos), mide la distancia entre los routers en base al n\'umero de routers por los que pasa un paquete enviado entre ellos. Se llama ``hop" (salto) al paso de datos de un router al siguiente. \\
+
+Es un protocolo f\'acil de configurar, y es eficiente en redes pequeñas, mientras que evidencia ciertas limitaciones en redes grandes, ya que el n\'umero m\'aximo de saltos permitidos es 15. \\
+
+RIP funciona mediante la actualizaci\'on de las tablas de ruteo. Los routers que utilizan RIP comparten sus tablas de ruteo completas cada 30 segundos. Adem\'as, cada router s\'olo conoce las rutas de sus vecinos, y recibe actualizaciones de los mismos con informaci\'on de las rutas disponibles y el n\'umero de saltos para llegar a las mismas. Este n\'umero de saltos determina el costo de una ruta (a menor n\'umero de saltos, mejor ruta). \\
+
+RIP no toma en cuenta la velocidad o la calidad de los enlaces entre los routers. Un menor n\'umero de saltos no garantiza una buena velocidad o ancho de banda, porque no lo pondera. \\
+
+Se dice que RIPv2 es un ``classless routing" (ruteo sin clase), ya que soporta subnetting. Adem\'as, soporta autenticaci\'on, lo cual garantiza actualizaciones de ruteo seguras. Es m\'as adaptable y moderno que RIPv1, brindando mayor seguridad y flexibilidad, aunque mantiene las limitaciones propias del protocolo. \\
+
+Un caso de uso real ser\'ia una pequeña oficina o red dom\'estica, que tenga menos de 15 routers. RIP resulta una soluci\'on ajustada, ya que es f\'acil de configurar en entornos pequeños. Sin embargo, un crecimiento significativo de la red (nuevas ramas y/o locaciones) comenzar\'ia a traer inconvenientes. \\
+
+En el laboratorio propuesto, hemos podido ver los comandos necesarios para la configuraci\'on RIP en los routers:
+
+\begin{verbatim}
+    r1# configure terminal
+    r1(config)# router rip
+    r1(config-router)# network 100.1.0.0/16
+    r1(config-router)# redistribute connected
+    r1(config-router)# exit
+    r1(config)# exit
+    r1# show ip route
+    r1# traceroute 100.1.0.10
+    
+\end{verbatim}
+
+En el ejercicio, se desactiva una de las interfaces del Router1 (la que conecta directamente con el Router3), tras lo cual se reconfigura la ruta hacia este Router, agregando un salto por el Router4 via la IP 100.1.0.14, correspondiente a la interfaz Eth3 del Router4. Repasamos los comandos utilizados:
+
+\begin{verbatim}
+    r1# ifconfig eth1 down
+    r1# traceroute 100.1.0.10
+    r1# show ip protocols
+    r1# show ip route
+    
+\end{verbatim}
+
+\subsection{Propagando RIP}
+
+- El comando ``\texttt{network}'' especifica las redes en las cuales se aplicara RIP, utilizando la direcci\'on de red de las redes directamente conectadas. \\
+
+- El comando ``\texttt{redistribute connected}'' redistribuye la informaci\'on de otros protocolos de ruteo. \\
+
+La PC1 recibe actualizaciones porque la m\'ascara de la direcci\'on de red (100.1.0.0/16) pasada al comando ``\texttt{network}'' (255.255.0.0) habilita RIP en la red definida por los 2 primeros octetos de la IP (100.1), por lo que todas las redes y subredes dentro del rango definido por los \'ultimos 2 octetos participar\'an del proceso RIP. \\
+
+El protocolo RIPv2 es sin clase, por lo que el proceso incluye la m\'ascara de subred y permite distinguir las subredes conectadas a la red RIP. En este caso, la m\'ascara incluye a todas las subredes, lo que hace que las actualizaciones de RIP se reenvíen por todas las interfaces con RIP habilitado. RIP envía actualizaciones por su interfaz g0/0, aunque no existe ningún dispositivo RIP en esa LAN. No hay manera de que el R1 tenga información acerca de esto y, como resultado, envía una actualización cada 30 segundos. \\
+
+Para evitar esto, se debe cambiar la m\'ascara a 255.255.255.0 (/24), para que la direcci\'on de red s\'olo incluya las subredes correspondientes a los Routers, excluyendo as\'i a los hosts conectados a \'estas. \\
+
+Otra forma de evitar el envío de actualizaciones innecesarias a la PC1 es utilizando el comando ``passive-interface <IDinterfaz>'':
+
+\begin{verbatim}
+    R1(config)# router rip 
+    R1(config-router)# passive-interface g0/0
+    R1(config-router)# end
+\end{verbatim}
+
+\subsection{Redes stubs}
+
+En este apartado, agregamos una ruta est\'atica al (ISP), a trav\'es del siguiente comando: \\
+
+\texttt{ISP\# ip route 100.1.0.0 255.255.0.0 100.2.0.1} \\
+
+Luego, agregamos el ``default gateway'' al Router4, el cual ser\'a nuestra frontera con el ISP. Utilizamos el siguiente comando: \\
+
+\texttt{R4\# ip default-gateway 100.2.0.2} \\
+
+Finalmente, propagamos la ruta con RIP:
+
+\begin{verbatim}
+   R4# configure terminal
+   R4(config)# router rip
+   R4(config-router)# network 0.0.0.0    
+(...)
+   Gateway of last resort is 100.2.0.2 to network 0.0.0.0
+(...)
+   S*   0.0.0.0/0 [1/0] via 100.2.0.2}
+(...)
+\end{verbatim}
+
+Si verificamos en el Router2, veremos que el default gateway fue agregado, pero a trav\'es de la propagaci\'on RIP: \\
+
+\begin{verbatim}
+   Router2>show ip route
+(...)
+   Gateway of last resort is 100.1.0.6 to network 0.0.0.0
+(...)
+   R*   0.0.0.0/0 [120/2] via 100.1.0.6, 00:00:14, Serial0/1/1
+(...)
+\end{verbatim}
+
+Al enviar el ping a una IP aleatoria desconocida, el tr\'afico lo realizar\'a hacia el Router ISP, aunque l\'ogicamente se descartar\'a, ya que este \'ultimo no conoce la ruta hacia dicha IP. \\
+
+\section{El protocolo OSPF}
+
+Para realizar la configuracion de los Routers con OSPF, utilizamos los siguientes comandos: \\
+
+\begin{verbatim}
+Router1> enable
+Router1# configure terminal
+Router1(config)# router ospf 1
+Router1(config-router)# router-id 1.1.1.1
+Router1(config-router)# network 100.0.0.0 0.0.7.255 area 0
+Router1(config-router)# end
+
+Router2> enable
+Router2# configure terminal
+Router2(config)# router ospf 1
+Router2(config-router)# router-id 1.1.1.2
+Router2(config-router)# network 100.0.0.0 0.0.7.255 area 0
+Router2(config-router)# end
+Router2# show ip ospf neighbor
+
+Router1# show ip ospf neighbor
+Router1# show ip ospf interface serial 0/1/0
+Router1# show ip ospf interface serial 0/1/1
+Router1# show ip ospf database
+
+Router4> enable
+Router4# configure terminal
+Router4(config)# show ip ospf neighbor
+Router4(config)# end
+Router4# show ip ospf interface g0/2
+Router4> enable
+Router4# configure terminal
+Router4(config)# router ospf 1
+Router4(config-router)# router-id 1.1.1.4
+Router4(config-router)# network 100.0.0.0 0.0.7.255 area 0
+Router4(config-router)# end
+Router4# show ip ospf neighbor
+
+Router3> enable
+Router3# configure terminal
+Router3(config)# show ip ospf neighbor
+Router3(config)# end
+Router3> enable
+Router3# configure terminal
+Router3(config)# router ospf 1
+Router3(config-router)# router-id 1.1.1.3
+Router3(config-router)# network 100.0.0.0 0.0.7.255 area 0
+Router3(config-router)# end
+Router3# show ip ospf neighbor
+Router3# show ip ospf database
+Router3# show ip ospf interface g0/0/1
+
+Router4> enable
+Router4# show ip ospf interface g0/0
+Router1> enable
+Router1# show ip ospf interface serial0/1/0
+Router5> enable
+Router5# show ip ospf database
+
+Router5# configure terminal
+Router5(config)# router ospf 1
+Router5(config-router)# router-id 1.1.1.5
+Router5(config-router)# network 100.0.0.0 0.0.7.255 area 0
+Router5(config-router)# end
+Router5# show ip ospf neighbor
+Router5# show ip ospf interface s0/1/0
+
+\end{verbatim}
+
+N\'otese que tambi\'en incluimos los ID para cada Router, a trav\'es del comando ``\texttt{router-id}". Adem\'as, la m\'ascara debe tipearse en el comando de forma invertida, como mostramos a continuaci\'on:
+
+\begin{verbatim}
+# router ospf 1                             ----> (1) es un <PID> de OSPF
+# router-id 1.1.1.1                         ----> elegimos un ID para el Router
+# network 100.0.0.0  0.0.7.255  area 0
+		     (255.255.248.0 --> Mascara invertida)
+		      11111111.11111111.11111000.00000000
+
+\end{verbatim}
+
+Utilizando la m\'ascara /16 (255.255.0.0), el protocolo dar\'a aviso del estado de las tablas a todas las redes con direcciones comprendidas por los 2 primeros octetos de la IP, incluyendo tambi\'en a los hosts y otros dispositivos de red por fuera del \'area OSPF que queremos definir. Para subsanar este env\'io innecesario de paquetes a destinos no deseados, podemos ajustar la m\'ascara a /27 (255.255.255.224), tomando los 27 primeros bits (3 octetos y 3 bits del 4to), a fin de s\'olo disponer de los \'ultimos 5 bits para contener las redes (100.0.0.)0, 4, 8, 12 y 16. De esta forma, se enviar\'a s\'olo a las redes cuya direcci\'on quede definida por el encabezado constante de 27 bits y los 5 restantes. \\
+
+\subsection{Tipos de redes OSPF}
+Para verificar los roles DR (Designated Router) y BDR (Backup Designated Router) en cada segmento de la red, ingresamos los comandos indicados para cada interfaz de los routers: \\
+
+\begin{verbatim}
+Router1# show ip ospf interface g0/0/0
+GigabitEthernet0/0/0 is up, line protocol is up
+  Internet address is 100.0.0.18/29, Area 0
+  Process ID 1, Router ID 1.1.1.1, Network Type BROADCAST, Cost: 1
+  Transmit Delay is 1 sec, State DROTHER, Priority 1
+  Designated Router (ID) 1.1.1.5, Interface address 100.0.0.17
+  Backup Designated Router (ID) 1.1.1.4, Interface address 100.0.0.19
+(...)
+  Neighbor Count is 2, Adjacent neighbor count is 2
+    Adjacent with neighbor 1.1.1.5  (Designated Router)
+    Adjacent with neighbor 1.1.1.4  (Backup Designated Router)
+(...)
+\end{verbatim}
+
+Como vemos, en el segmento correspondiente a la interfaz G/0/0/0 del R1, verificamos que el DR es el R5, y el BDR es el R4. \\
+
+En la interfaz S0/1/0 del R1, en cambio, vemos que el tipo de red es punto a punto, no broadcast, por lo que s\'olo mostrar\'a una adyacencia:
+
+\begin{verbatim}
+Router1# show ip ospf neighbor
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+1.1.1.2           0   FULL/  -        00:00:34    100.0.0.10      Serial0/1/0
+1.1.1.4           1   FULL/BDR        00:00:33    100.0.0.19      GigabitEthernet0/0/0
+1.1.1.5           1   FULL/DR         00:00:34    100.0.0.17      GigabitEthernet0/0/0
+
+Router1# show ip ospf interface s0/1/0
+Serial0/1/0 is up, line protocol is up
+  Internet address is 100.0.0.9/30, Area 0
+  Process ID 1, Router ID 1.1.1.1, Network Type POINT-TO-POINT, Cost: 64
+  Transmit Delay is 1 sec, State POINT-TO-POINT,
+(...)
+  Neighbor Count is 1 , Adjacent neighbor count is 1
+    Adjacent with neighbor 1.1.1.2
+  Suppress hello for 0 neighbor(s)
+\end{verbatim}
+
+Esto mismo lo veremos en el R2 respecto de los vecinos R1 y R5. \\
+
+En el R5, en cambio, veremos, por un lado, que se comporta como extremo de enlace punto a punto en los enlaces Serial 0/1/0 y 0/1/1 (con 1 adyacencia en cada caso), pero en el segmento broadcast se comporta como DR, indicando que el R4 es su BDR para este segmento. \\
+
+\begin{verbatim}
+Router5# show ip ospf neighbor
+Neighbor ID     Pri   State         Dead Time   Address         Interface
+1.1.1.4           1   FULL/BDR      00:00:30    100.0.0.19      GigabitEthernet0/0/0
+1.1.1.1           1   FULL/DROTHER  00:00:30    100.0.0.18      GigabitEthernet0/0/0
+1.1.1.2           0   FULL/  -      00:00:30    100.0.0.1       Serial0/1/0
+1.1.1.3           0   FULL/  -      00:00:30    100.0.0.6       Serial0/1/1
+
+Router5# show ip ospf interface g0/0/0
+GigabitEthernet0/0/0 is up, line protocol is up
+  Internet address is 100.0.0.17/29, Area 0
+  Process ID 1, Router ID 1.1.1.5, Network Type BROADCAST, Cost: 1
+  Transmit Delay is 1 sec, State DR, Priority 1
+  Designated Router (ID) 1.1.1.5, Interface address 100.0.0.17
+  Backup Designated Router (ID) 1.1.1.4, Interface address 100.0.0.19
+(...)
+  Neighbor Count is 2, Adjacent neighbor count is 2
+    Adjacent with neighbor 1.1.1.4  (Backup Designated Router)
+    Adjacent with neighbor 1.1.1.1
+  Suppress hello for 0 neighbor(s)
+Router5#
+
+\end{verbatim}
+
+Por \'ultimo, el R3 funciona como BDR en el segmento correspondiente a su interfaz G0/0/1 (enlace con R4), y como extremo de enlace punto a punto en la interfaz S0/1/0 (enlace con R5). \\
+
+\begin{verbatim}
+Router3# show ip ospf neighbor
+Neighbor ID     Pri   State     Dead Time   Address         Interface
+1.1.1.4           1   FULL/DR   00:00:39    100.0.0.14      GigabitEthernet0/0/1
+1.1.1.5           0   FULL/-    00:00:39    100.0.0.5       Serial0/1/0
+
+Router3# show ip ospf interface g0/0/1
+GigabitEthernet0/0/1 is up, line protocol is up
+  Internet address is 100.0.0.13/30, Area 0
+  Process ID 1, Router ID 1.1.1.3, Network Type BROADCAST, Cost: 1
+  Transmit Delay is 1 sec, State BDR, Priority 1
+  Designated Router (ID) 1.1.1.4, Interface address 100.0.0.14
+  Backup Designated Router (ID) 1.1.1.3, Interface address 100.0.0.13
+(...)
+  Neighbor Count is 1, Adjacent neighbor count is 1
+    Adjacent with neighbor 1.1.1.4  (Designated Router)
+  Suppress hello for 0 neighbor(s)
+Router3#
+
+\end{verbatim}
+
+Esta informaci\'on (y la referente a los otros Routers) lo podemos verificar en el R4:
+
+\begin{verbatim}
+Router4# show ip ospf neighbor
+Neighbor ID     Pri   State         Dead Time   Address         Interface
+1.1.1.5           1   FULL/DR       00:00:37    100.0.0.17      GigabitEthernet0/0
+1.1.1.1           1   FULL/DROTHER  00:00:37    100.0.0.18      GigabitEthernet0/0
+1.1.1.3           1   FULL/BDR      00:00:37    100.0.0.13      GigabitEthernet0/2
+
+Router4# show ip ospf interface g0/0
+GigabitEthernet0/0 is up, line protocol is up
+  Internet address is 100.0.0.19/29, Area 0
+  Process ID 1, Router ID 1.1.1.4, Network Type BROADCAST, Cost: 1
+  Transmit Delay is 1 sec, State BDR, Priority 1
+  Designated Router (ID) 1.1.1.5, Interface address 100.0.0.17
+  Backup Designated Router (ID) 1.1.1.4, Interface address 100.0.0.19
+	(...)
+  Neighbor Count is 2, Adjacent neighbor count is 2
+    Adjacent with neighbor 1.1.1.5  (Designated Router)
+    Adjacent with neighbor 1.1.1.1
+  Suppress hello for 0 neighbor(s)
+Router4#
+
+\end{verbatim}
+
+Confeccionamos, a modo de resumen de lo analizado, la siguiente tabla:
+\begin{verbatim}
+Segmento    Tipo de red         DR      BDR     DROther
+R1-R2       Punto a punto       -       -       -
+R2-R5       Punto a punto       -       -       -
+R5-R3       Punto a punto       -       -       -
+R3-R4       Broadcast           R4      R3      -
+R1-R4-R5    Broadcast           R5      R4      R1
+
+\end{verbatim}
+
+\subsection{La LSDB de OSPF}
+
+Disponemos de los siguientes comandos para conocer la informaci\'on de la LSDB de los routers: \\\\
+
+\texttt{r1\# show ip ospf database} \\
+
+- Brinda informaci\'on resumida de la LSDB (Router Link States y Net Link States). \\
+
+\texttt{r1\# show ip ospf database router} \\
+
+- Brinda informaci\'on detallada de los Router Link States del \'area OSPF. \\
+
+\texttt{r1\# show ip ospf database network} \\
+
+- Brinda informaci\'on de los Net Link States del router. \\
+
+\texttt{r1\# ip ospf cost 1000} \\
+
+- Altera el costo de una arista del grafo subyacente. \\
+
+\texttt{PC\> tracert 100.0.1.2} \\
+
+- Permite verificar desde un host una ruta hacia un destino. \\ 
+
+Ejemplo de uso en la PC1 para verificar la ruta hacia la PC3:
+
+\begin{verbatim}
+(PC1) C:\>tracert 100.0.3.2
+Tracing route to 100.0.3.2 over a maximum of 30 hops: 
+
+  1   0 ms      0 ms      0 ms      100.0.1.1
+  2   0 ms      0 ms      0 ms      100.0.0.19
+  3   0 ms      0 ms      0 ms      100.0.0.13
+  4   *         0 ms      0 ms      100.0.3.2
+
+Trace complete.
+C:\>
+
+\end{verbatim}
+
+Por \'ultimo, para conectar al ISP, se debe establecer una ruta est\'atica con los comandos vistos en TPs anteriores, y luego utilizar alguno de los siguientes comandos para que se pueda establecer conexi\'on con el resto de la red configurada con OSPF:
+
+\begin{verbatim}
+# redistribute static
+# default information originate
+
+\end{verbatim}
+
+Este \'ultimo comando se debe ejecutar s\'olo en el router que se conecta con el ISP. Este Router toma el rol de ABR (Router del Borde de la Red), y en el escenario ser\'ia el Router R5. \\ 
+
+El comando ``redistribute static'' se debe ejecutar en el ISP, ya que el comando ``redistribute'' permite tomar rutas ya existentes que est\'en conectadas directamente e inyectarlas en el protocolo de ruteo din\'amico, pudiendo as\'i ser comunicadas a los vecinos. \\
+
+\section{Referencias}
+\begin{itemize}
+    \item https://www.cisco.com/c/en/us/td/docs/routers/access/800M/software/800MSCG/routconf.html
+
+    \item https://notes.networklessons.com/routing-network-vs-redistribute-connected-commands
+
+    \item https://networklessons.com/ip-routing/introduction-to-redistribution
+
+    \item https://ccnadesdecero.es/configuracion-del-protocolo-rip/
+
+    \item https://www.juniper.net/documentation/mx/es/software/junos/rip/topics/topic-map/rip-and-ripng-overview.html
+
+    \item https://github.com/moro1982/tp-dynamic\_routing.git
+    
+\end{itemize}
+
+\texttt{}
+
+\end{document}
